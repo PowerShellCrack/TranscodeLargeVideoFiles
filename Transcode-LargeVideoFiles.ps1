@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Grab each file and determin its size, if larger than 500mb. transcode and replace.
 .DESCRIPTION
@@ -660,12 +660,14 @@ Foreach ($file in $FoundLargeFiles){
     Write-Log -Message ("[{0}] is too large [{1}], re-transcoding to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
     Write-Log -Message ("Procssing new file [{0}]" -f $NewFileFullPath) -Source $TranscodeJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix 
     #Write-Log -Message "RUNNING COMMAND: $FFMpegPath $ffmpegCombinedArgs" -Source $TranscodeJobName -Severity 4 -WriteHost
+    
     $ffmpeg = Execute-Process -Path $FFMpegPath -Parameters $ffmpegCombinedArgs -CreateNoWindow -PassThru
     #$ffmpeg = Start-Process $FFMpegPath -ArgumentList $ffmpegCombinedArgs -NoNewWindow -Wait -PassThru
     
     If($ffmpeg.ExitCode -eq 0)
     {
         $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
+        $NewSize = Convert-ToBytes $NewFile.Length
         #$NewVidRes = Execute-Process -Path $FFProbePath -Parameters "-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 ""$NewFileFullPath""" -CreateNoWindow -PassThru
         
         $p = New-Object System.Diagnostics.Process;
@@ -677,38 +679,34 @@ Foreach ($file in $FoundLargeFiles){
         $p.WaitForExit();
         $NewVidRes = $p.StandardOutput.ReadToEnd()
 
-        <#Check if size is larger than specified size , if so try to ruyn two pass on it
+        #Check if size is larger than specified size , if so try to ruyn two pass on it
         If($TranscodePasses -eq 2 -and $NewFile.Length -gt $FindSizeGreaterThan){
-            $NewSize = Convert-ToBytes $NewFile.Length
-
             Write-Log -Message ("[{0}] is STILL too large [{1}], will try to run 2 passes reduce file size" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
             #build new filename and path for pass 1
             
-            $Pass1FileName = $file.BaseName + '1.mp4'
-            $Pass1FullPath = Join-Path $WorkingDir -ChildPath $Pass1FileName
-            Write-Log -Message "RUNNING COMMAND: $FFMpegPath -i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 -passlogfile ""$NewFileLogFullPath"" ""$Pass1FullPath""" -Source $TranscodeJobName -Severity 4 -WriteHost
-            Start-Process $FFMpegPath -ArgumentList "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 -passlogfile ""$NewFileLogFullPath"" ""$Pass1FullPath"""
+            Write-Log -Message "RUNNING COMMAND: $FFMpegPath -i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 -passlogfile ""$NewFileLogFullPath"" -y NUL" -Source $TranscodeJobName -Severity 4 -WriteHost
+            #Start-Process $FFMpegPath -ArgumentList "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 -passlogfile ""$NewFileLogFullPath""  -y NUL"
+            $ffmpeg1pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 -passlogfile ""$NewFileLogFullPath""  -y NUL" -CreateNoWindow -PassThru
 
             #build new filename and path for pass 2
-            $Pass2FileName = $file.BaseName + '2.mp4'
-            $Pass2FullPath = Join-Path $WorkingDir -ChildPath $Pass2FileName
-            Write-Log -Message "RUNNING COMMAND: $FFMpegPath -i ""$Pass1FullPath"" -vcodec libx264 -ac 1 -vpre normal -pass 2 -passlogfile ""$NewFileLogFullPath"" ""$Pass2FullPath""" -Source $TranscodeJobName -Severity 4 -WriteHost
-            Start-Process $FFMpegPath -ArgumentList "-i ""$Pass1FullPath"" -vcodec libx264 -ac 1 -vpre normal -pass 2 -passlogfile ""$NewFileLogFullPath"" ""$Pass2FullPath"""
+            Write-Log -Message "RUNNING COMMAND: $FFMpegPath -i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre normal -pass 2 -passlogfile ""$NewFileLogFullPath"" ""$NewFileFullPath""" -Source $TranscodeJobName -Severity 4 -WriteHost
+            #Start-Process $FFMpegPath -ArgumentList "-i ""$Pass1FullPath"" -vcodec libx264 -ac 1 -vpre normal -pass 2 -passlogfile ""$NewFileLogFullPath"" ""$NewFileFullPath"""
+            $ffmpeg2pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre normal -pass 2 -passlogfile ""$NewFileLogFullPath"" ""$NewFileFullPath""" -CreateNoWindow -PassThru
 
-            #update path to pass2 file
-            $NewFileFullPath = $Pass2FullPath
-            $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
-            $Size = Convert-ToBytes $NewFile.Length
+            If($ffmpeg1pass.ExitCode -eq 0 -and $ffmpeg2pass.ExitCode -eq 0){
+                $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
+                $NewSize = Convert-ToBytes $NewFile.Length
+                Write-Log -Message ("[{0}] has been reduced to [{1}]" -f $NewFile.Name,$NewSize) -Source 'FFMPEG2PASS' -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix
+            }Else{
+                 Write-Log -Message ("ffmpeg 2 pass failed to transcode [{0}]" -f $file.Name) -Source 'FFMPEG2PASS' -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix
+            }
         }
         Else{
-            Write-Log -Message ("[{0}] has been reduced to [{1}]" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName Severity -WriteHost -MsgPrefix $FileWriteHostPrefix
+            Write-Log -Message ("[{0}] has been reduced to [{1}]" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix
         }
-        #>
 
-        
 
         #move file back to original location
-        #Move-item $NewFileFullPath -Destination $ParentDir
         Write-Log -Message ("Transferring [{0}] to [{1}]" -f $NewFile.FullName,$ParentDir) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
         $bits = Start-BitsTransfer -Source "$NewFileFullPath" -Destination $ParentDir -Description "Transferring to $ParentDir" -DisplayName "Moving $NewFileName" -Asynchronous
  
@@ -729,8 +727,7 @@ Foreach ($file in $FoundLargeFiles){
             Write-Log -Message ("Removing working directory [{0}]" -f $WorkingDir) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
             Remove-Item $WorkingDir -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 
-            #Build database of video information
-        
+            #Record video information
             [psobject]$vids = New-Object -TypeName 'PSObject' -Property @{
                 OriginalRes  = $vidres
                 OriginalSize = Convert-ToBytes $file.Length
@@ -758,102 +755,3 @@ $SearchFolderStatsAfter = Get-HugeDirStats $searchDir
 
 Write-Log -Message ("Script Completed [{0}]" -f (Get-Date)) -Source $scriptName -Severity 1 -WriteHost -MsgPrefix $scriptName 
 return $res
-
-
-
-
-
-
-
-
-
-<#new job process mutple files at once
-
-while ($true)
-{
-    "Loop File"
-
-    #get all files larger than specified size and order than by largest first
-    $FoundLargeFiles = Get-ChildItem $searchDir -Recurse -ErrorAction "SilentlyContinue" | Where-Object {$_.Length -gt $FindSizeGreaterThan} | Sort-Object length -Descending
-
-
-    if ($FoundLargeFiles.count -eq 0 )
-    {
-       Start-Sleep -Seconds 1
-       continue 
-    }
-
-    #loop file to trait
-    $FoundLargeFiles | %{
-
-        while ((get-job -State Running | where Name -eq $TranscodeJobName ).Count -ge $maxConcurrentJobs)
-        {
-            Start-Sleep -Seconds 1
-            get-job -State Completed | where Name -eq $TranscodeJobName | Remove-Job
-        }
-
-        "Transcoding file : {0}" -f $_.Name
-        
-        $Size = Convert-ToBytes $_.Length
-    
-        $GUID = $([guid]::NewGuid().ToString().Trim())
-        $ParentDir = Split-path $_.FullName -Parent
-        $WorkingDir = Join-Path $TranscodeDir -ChildPath $GUID
-        New-Item $WorkingDir -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
-        $NewFileLogName = $file.BaseName + '.log'
-        $NewFileLogFullPath = Join-Path $TranscodeLogDir -ChildPath $NewFileLogName
-
-        $ffmpegAlwaysUseArgs = '-ac 2 -ar 44100 -threads 2 -f mp4 -passlogfile $NewFileLogFullPath'
-
-        #$ffmpegAlwaysUseArgs = '-b:a 128k -ac 2 -ar 44100 -threads 2 -f mp4'
-        $ffmpegAlwaysUseArgs = "-shortest -c:v dnxhd -b:v 120M -s 1920x1080 -pix_fmt yuv422p -r 25 -c:a pcm_s16le -ar 48k -af loudnorm=I=-12"
-        switch($_.Extension){
-            '.ts'   {$ffmpegExtArgs = '-acodec copy -vcodec copy'}
-            '.avi'  {$ffmpegExtArgs = '-vcodec libx264 -crf 30 -profile:v main -preset fast'}
-            '.mkv'  {$ffmpegExtArgs = '-vcodec libx264 -crf 30 -profile:v main -preset fast'}
-            '.mp4'  {$ffmpegExtArgs = '-vcodec libx264 -crf 30 -profile:v main -preset fast'}
-            '.wmv'  {$ffmpegExtArgs = '-vcodec libx264 -crf 30 -profile:v main -preset fast'}
-            '.mpeg' {$ffmpegExtArgs = '-vcodec libx264 -crf 30 -profile:v main -preset fast'}
-            '.mpg'  {$ffmpegExtArgs = '-vcodec libx264 -crf 30 -profile:v main -preset fast'}
-            default {$ffmpegExtArgs = '-vcodec libx264 -crf 30 -profile:v main -preset fast'}
-        }
-
-
-        #build newname
-        $NewFileName = $_.BaseName + '.mp4'
-        $NewFileFullPath = Join-Path $WorkingDir -ChildPath $NewFileName
-
-        If($_.Extension -eq '.ts'){
-            Write-Host ("Recorded file found [{0}], removing commercials..." -f $($_.Name)) -ForegroundColor Gray
-            Write-Host "RUNNING COMMAND: $PythonPath $PlexDVRComSkipScriptPath ""$($_.FullName)""" -ForegroundColor Cyan
-            #Start-Process $PythonPath -ArgumentList "$PlexDVRComSkipScriptPath ""$($_.FullName)""" -NoNewWindow -Wait
-            $ScriptBlock=[scriptblock]::Create("Start-Process $FFMpegPath -ArgumentList $ffmpegCombinedArgs -Wait")
-            Start-Job -ScriptBlock $ScriptBlock -Name $CommericalJobName
-        }
-
-        Write-Host ("File [{0}] is to large [{1}], re-transcoding to reduce file size" -f $($_.Name),$Size) -ForegroundColor Yellow
-        Write-Host ("Procssing new file [{0}]" -f $NewFileFullPath) -ForegroundColor Gray
-        Write-Host "RUNNING COMMAND: $FFMpegPath -i ""$($_.FullName)"" $ffmpegExtArgs $ffmpegAlwaysUseArgs ""$NewFileFullPath""" -ForegroundColor Cyan
-
-        #build arguments and command
-        $ffmpegCombinedArgs     = " -loop 1 -i ""$($_.FullName)"" $ffmpegAlwaysUseArgs ""$NewFileFullPath"""
-
-        $ScriptBlock=[scriptblock]::Create("Start-Process $FFMpegPath -ArgumentList $ffmpegCombinedArgs -Wait")
-
-        #add job
-        Start-Job -ScriptBlock $ScriptBlock -Name $TranscodeJobName
-
-        #move file back to original location
-        #Move-item $NewFileFullPath -Destination $ParentDir
-        Start-BitsTransfer -Source $NewFileFullPath -Destination $ParentDir -Description "Transferring to $ParentDir" -DisplayName "Moving $NewFileName"
-    
-        #remove original file
-        Remove-Item "$($_.FullName)" -Force -ErrorAction SilentlyContinue | Out-Null
-    
-        #remove working directory
-        Remove-Item $WorkingDir -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-
-    }
-
-}
-#>
