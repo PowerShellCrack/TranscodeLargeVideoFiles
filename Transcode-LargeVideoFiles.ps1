@@ -558,7 +558,7 @@ Function Pad-PrefixOutput {
 
 [string]$global:LogFilePath = "E:\Data\Processors\Logs\$scriptName-$(Get-Date -Format yyyyMMdd).log"
 $RunningDate = Get-Date
-Write-Log -Message ("Script Started [{1}]" -f (Get-Date)) -Source $scriptName -Severity 1 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix $scriptName -UpperCase)
+Write-Log -Message ("Script Started [{0}]" -f (Get-Date)) -Source $scriptName -Severity 1 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix $scriptName -UpperCase)
 
 Import-Module BitsTransfer
 ##*===============================================
