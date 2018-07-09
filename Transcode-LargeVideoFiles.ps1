@@ -580,7 +580,6 @@ Write-Log -Message ("Found [{0}] files with size over [{1}], File processing wil
 #get length of current count to format message equally
 $FoundFileLength = [int32]$FoundLargeFiles.Count.ToString().Length
 
-
 $currentCount = 0
 $res = @()
 #process each file using ffmpeg
@@ -589,6 +588,11 @@ Foreach ($file in $FoundLargeFiles){
     $currentCount = $currentCount+1
     [string]$PadCurrentCount = Pad-Counter -Number $currentCount -MaxPad $FoundFileLength
     $FileWriteHostPrefix = Pad-PrefixOutput -Prefix ("File {0} of {1}" -f $PadCurrentCount,$FoundLargeFiles.Count) -UpperCase
+    
+    #build progress bar for overall process
+    $FilePercent = $PadCurrentCount / $FoundLargeFiles.Count * 100
+    Write-Progress -id 1 -Activity ("Overall status [{1:N2}%]" -f $FileWriteHostPrefix,$FilePercent) -PercentComplete $FilePercent -Status ("Processing file {0} of {1} : : {2}" -f $PadCurrentCount,$FoundLargeFiles.Count,$file.Name)
+    
     #build working directory
     $GUID = $([guid]::NewGuid().ToString().Trim())
     $ParentDir = Split-path $File.FullName -Parent
@@ -624,21 +628,11 @@ Foreach ($file in $FoundLargeFiles){
     }
 
     #Get video resolution to determine ffmpeg argument
-    #https://codecsocean.com/how-to-scale-and-resize-with-ffmpeg/
-    <#$p = New-Object System.Diagnostics.Process;
-    $p.StartInfo.UseShellExecute = $false;
-    $p.StartInfo.RedirectStandardOutput = $true;
-    $p.StartInfo.FileName = $FFProbePath
-    $p.StartInfo.Arguments = "-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 ""$($file.FullName)"""
-    [void]$p.Start();
-    $p.WaitForExit();
-    $vidres = $p.StandardOutput.ReadToEnd()
-    #>
-    $ffmpegVidArgs = ''
     $ffprobeRes = Execute-Process -Path $FFProbePath -Parameters "-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 ""$($file.FullName)""" -PassThru
     #sometimes videow have mutlple streams with resolutions of the same, we just need one
     $vidres = (($ffprobeRes.StdOut) -split '[\r\n]') |? {$_} | Select -First 1
     #If any of the resolutiuons exist, add a ffmpeg paramter to reduce it. 
+    $ffmpegVidArgs = ''
     switch( $vidres ){
         '1920x1080' {$ffmpegVidArgs = '-s 4cif'}
         '1280x720'  {$ffmpegVidArgs = '-s 4cif'}
@@ -668,35 +662,36 @@ Foreach ($file in $FoundLargeFiles){
     $ffmpegCombinedArgs  = "-y -i ""$($file.FullName)"" $ffmpegAlwaysUseArgs $ffmpegVidArgs $ffmpegExtArgs ""$NewFileFullPath"""
     #$ffmpegCombinedArgs  = "-y -i ""$($file.FullName)"" $ffmpegAlwaysUseArgs $ffmpegVidArgs $ffmpegExtArgs ""$NewFileFullPath"" 2> ""$TranscodeLogDir\$GUID.log"""
     #now re-encode the video to reduce it size
-    Write-Log -Message ("[{0}] is too large [{1}], re-transcoding to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
-    Write-Log -Message ("Procssing new file [{0}]" -f $NewFileFullPath) -Source $TranscodeJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix 
-
+    Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding process to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+    
     #get duration of video to calculate progress bar
-    $ffprobeDur = Execute-Process -Path $FFProbePath -Parameters "-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ""$($file.FullName)""" -PassThru
+    Write-Log -Message ("Probing file [{0}] for duration time" -f $file.Name) -Source $TranscodeJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+    $ffprobeDur = Execute-Process -Path $FFProbePath -Parameters "-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ""$($file.FullName)""" -CreateNoWindow -PassThru
     $totalTime = $ffprobeDur.StdOut
 
     #if a time duration was found, a progess bar can be used
     If($totalTime){
+        Write-Log -Message ("Procssing new file [{0}]" -f $NewFileFullPath) -Source $TranscodeJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix 
         Write-Log -Message "Executing [$FFMpegPath $ffmpegCombinedArgs]..." -Source "FFMPEG" -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
-        $ffmpeg = Start-Process -FilePath $FFMpegPath -ArgumentList $ffmpegCombinedArgs -RedirectStandardError "$TranscodeLogDir\$GUID.log" -NoNewWindow -PassThru
-        #progress bar monitors the trancoding log for time
+        $ffmpeg = Start-Process -FilePath $FFMpegPath -ArgumentList $ffmpegCombinedArgs -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
+        #progress bar monitors the trancoding log for time duration and ends when process has exited
         Do{
             Start-sleep 1
             #parse log every second, get the last line
-            $Progress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
+            $ffmpegProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
             #sometime the last line may not have a time value, only display progress when it does
-            If($Progress){
+            If($ffmpegProgress){
                 #The time value is in time-HH.MM.SS.mm, split it off the = and convert it to timespan format
-                $gettimevalue = [TimeSpan]::Parse(($Progress.Split("=")[1]))
+                $gettimevalue = [TimeSpan]::Parse(($ffmpegProgress.Split("=")[1]))
                 #send it to a string to be converted to datetime
                 $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
                 $a = [datetime]::ParseExact($starttime,"HH:mm:ss,fff",$null)
                 #now convert it into seconds to match ffprobe suration format
                 $ffmpegTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
                 #divide them to get the percentage
-                $percent = $ffmpegTimelapse / $totalTime * 100
+                $ffmpegPercent = $ffmpegTimelapse / $totalTime * 100
                 #display time
-                Write-Progress -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $percent -Status ("Video is {0:N2}% completed..." -f $percent)
+                Write-Progress -id 2 -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $ffmpegPercent -Status ("Video is {0:N2}% completed..." -f $ffmpegPercent)
             }
         }Until ($ffmpeg.HasExited)
     }Else{
@@ -718,59 +713,48 @@ Foreach ($file in $FoundLargeFiles){
             If($totalTime){
                 #build new filename and path for pass 
                 Write-Log -Message "Executing [$FFMpegPath -i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y ""$NullFileFullPath""]..." -Source "FFMPEG1PASS" -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
-                $ffmpeg1pass = Start-Process $FFMpegPath -ArgumentList "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y ""$NullFileFullPath""" -RedirectStandardError "$TranscodeLogDir\$GUID.log" -NoNewWindow -PassThru
+                $ffmpeg1pass = Start-Process $FFMpegPath -ArgumentList "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y ""$NullFileFullPath""" -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
+                #progress bar monitors the trancoding log for time duration and ends when process has exited
                 Do{
                     Start-sleep 1
-                    #parse log every second, get the last line
-                    $Progress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
-                    #sometime the last line may not have a time value, only display progress when it does
-                    If($Progress){
-                        #The time value is in time-HH.MM.SS.mm, split it off the = and convert it to timespan format
-                        $gettimevalue = [TimeSpan]::Parse(($Progress.Split("=")[1]))
-                        #send it to a string to be converted to datetime
+                    $ffmpeg1passProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
+                    If($ffmpeg1passProgress){
+                        $gettimevalue = [TimeSpan]::Parse(($ffmpeg1passProgress.Split("=")[1]))
                         $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
                         $a = [datetime]::ParseExact($starttime,"HH:mm:ss,fff",$null)
-                        #now convert it into seconds to match ffprobe suration format
-                        $ffmpegTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
-                        #divide them to get the percentage
-                        $percent = $ffmpegTimelapse / $totalTime * 100
-                        #display time
-                        Write-Progress -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $percent -Status ("Video is {0:N2}% completed..." -f $percent)
+                        $ffmpeg1passTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
+                        $ffmpeg1passPercent = $ffmpeg1passTimelapse / $totalTime * 100
+                        Write-Progress -id 2 -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $ffmpeg1passPercent -Status ("Video Pass 1 is {0:N2}% completed..." -f $ffmpeg1passPercent)
                     }
+
                 }Until ($ffmpeg1pass.HasExited)
 
                 #build new filename and path for pass 2
                 Write-Log -Message "Executing [$FFMpegPath -i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 -y ""$NewFileFullPath""]..." -Source "FFMPEG2PASS" -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
-                $ffmpeg2pass = Start-Process $FFMpegPath -ArgumentList "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 -y ""$NewFileFullPath""" -RedirectStandardError "$TranscodeLogDir\$GUID.log" -NoNewWindow -PassThru
+                $ffmpeg2pass = Start-Process $FFMpegPath -ArgumentList "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 -y ""$NewFileFullPath""" -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
+                #progress bar monitors the trancoding log for time duration and ends when process has exited
                 Do{
                     Start-sleep 1
-                    #parse log every second, get the last line
-                    $Progress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
-                    #sometime the last line may not have a time value, only display progress when it does
-                    If($Progress){
-                        #The time value is in time-HH.MM.SS.mm, split it off the = and convert it to timespan format
-                        $gettimevalue = [TimeSpan]::Parse(($Progress.Split("=")[1]))
-                        #send it to a string to be converted to datetime
+                    $ffmpeg2passProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
+                    If($ffmpeg2passProgress){
+                        $gettimevalue = [TimeSpan]::Parse(($ffmpeg2passProgress.Split("=")[1]))
                         $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
                         $a = [datetime]::ParseExact($starttime,"HH:mm:ss,fff",$null)
-                        #now convert it into seconds to match ffprobe suration format
-                        $ffmpegTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
-                        #divide them to get the percentage
-                        $percent = $ffmpegTimelapse / $totalTime * 100
-                        #display time
-                        Write-Progress -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $percent -Status ("Video is {0:N2}% completed..." -f $percent)
+                        $ffmpeg2passTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
+                        $ffmpeg2passPercent = $ffmpeg2passTimelapse / $totalTime * 100
+                        Write-Progress -id 2 -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $ffmpeg2passPercent -Status ("Video Pass 2 is {0:N2}% completed..." -f $ffmpeg2passPercent)
                     }
 
                 }Until ($ffmpeg2pass.HasExited)
             }
             Else{
                 #build new filename and path for pass 1
-                #$ffmpeg1pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 -passlogfile ""$NewFileLogFullPath"" ""$NewFileFullPath""" -CreateNoWindow -PassThru
+                #$ffmpeg1pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 ""$NewFileFullPath""" -CreateNoWindow -PassThru
                 $ffmpeg1pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y nul.avi" -CreateNoWindow -PassThru
   
                 #build new filename and path for pass 2
-                #$ffmpeg2pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre normal -pass 2 -passlogfile ""$NewFileLogFullPath"" ""$NewFileFullPath""" -CreateNoWindow -PassThru
-                $ffmpeg2pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)""  -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2-pass 2 ""$NewFileFullPath""" -CreateNoWindow -PassThru
+                #$ffmpeg2pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre normal -pass 2 ""$NewFileFullPath""" -CreateNoWindow -PassThru
+                $ffmpeg2pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 ""$NewFileFullPath""" -CreateNoWindow -PassThru
             }
             
             If($ffmpeg1pass.ExitCode -eq 0 -and $ffmpeg2pass.ExitCode -eq 0){
