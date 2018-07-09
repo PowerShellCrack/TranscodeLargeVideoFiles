@@ -15,6 +15,6 @@ I wrote this powershell script to tanscode all my TV shows that were 800mb of la
 # NOTES
   To get ffmpeg to display a progress status, I had to first get the video duration using ffprobe. Using ffprobes value and redirecting ffmpeg stanradr error output to a log, I was able to grab the last line in the log and find the current transcode spot in the timeline and build a progress bar actively showing ffmpeg's percentage.
 
-![alt text](https://photos.google.com/share/AF1QipM4SksZajMAR4tfQCvUe4gcEvGKlw54B51p9dnV2q8Xi_LTZEK2QI1J1jJNWXFZWg/photo/AF1QipOf7lReSMikXjsx0RPB-FNHgAsCozlcjSN0G5pK?key=VzZoMkNjWXNGTTM3bXY3T2ZnaUZjVmRiZDdKazdn)
+![alt text](https://4.bp.blogspot.com/-nSUVuIMSVaQ/W0Pw3t0jjoI/AAAAAAAAOgY/xJp_Q45t0qYfXZokoxiSoq8zu6h7vjvIgCLcBGAs/s1600/transcodeprogress.png)
 
 
