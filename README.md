@@ -16,10 +16,11 @@ I wrote this powershell script to tanscode all my TV shows that were 800mb of la
   To get ffmpeg to display a progress status, I had to first get the video duration using ffprobe. Using ffprobes value and redirecting ffmpeg stanradr error output to a log, I was able to grab the last line in the log and find the current transcode spot in the timeline and build a progress bar actively showing ffmpeg's percentage.
 
 # Required software
-     - comskip --> https://www.videohelp.com/software/Comskip/old-versions#downloadold
-     - ffmpeg --> https://ffmpeg.org/download.html
-     - plexcomskip (optional) --> https://github.com/ekim1337/PlexComskip
-     - python 2.7 (optional) --> https://www.python.org/downloads/release/python-2713/
+     - comskip.exe (entire zipped directory) --> https://www.videohelp.com/software/Comskip/old-versions#downloadold
+     - ffmpeg.exe --> https://ffmpeg.org/download.html
+     - ffprobe.exe (comes with ffmpeg) --> https://ffmpeg.org/download.html
+     - PlexComskip.py (optional) --> https://github.com/ekim1337/PlexComskip
+     - Python 2.7 (optional) --> https://www.python.org/downloads/release/python-2713/
 
 ![alt text](https://4.bp.blogspot.com/-nSUVuIMSVaQ/W0Pw3t0jjoI/AAAAAAAAOgY/xJp_Q45t0qYfXZokoxiSoq8zu6h7vjvIgCLcBGAs/s1600/transcodeprogress.png)
 
