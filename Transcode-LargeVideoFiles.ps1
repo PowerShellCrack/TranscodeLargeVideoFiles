@@ -1,11 +1,19 @@
 <#
 .SYNOPSIS
-    Grab each file and determin its size, if larger than 500mb. transcode and replace.
+    Grab each file and determine its size, if larger than 500mb. transcode and replace.
 .DESCRIPTION
-
+    To get ffmpeg to display a progress status, I had to first get the video duration using ffprobe. 
+    Using ffprobes value and redirecting ffmpeg stanradr error output to a log, I was able to grab 
+    the last line in the log and find the current transcode spot in the timeline and build a progress 
+    bar actively showing ffmpeg's percentage.
 .NOTES
+    Make sure to change the variables paths to your directory
 .LINK 
-    https://ffmpeg.org/ffmpeg.html
+     - comskip.exe (entire zipped directory) --> https://www.videohelp.com/software/Comskip/old-versions#downloadold
+     - ffmpeg.exe --> https://ffmpeg.org/download.html
+     - ffprobe.exe (comes with ffmpeg) --> https://ffmpeg.org/download.html
+     - PlexComskip.py (optional) --> https://github.com/ekim1337/PlexComskip
+     - Python 2.7 (optional) --> https://www.python.org/downloads/release/python-2713/
 #>
 
 ## Variables: Script Name and Script Paths
