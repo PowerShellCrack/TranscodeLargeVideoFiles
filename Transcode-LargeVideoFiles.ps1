@@ -2,13 +2,13 @@
 .SYNOPSIS
     Grab each file and determine its size, if larger than 500mb. transcode and replace.
 .DESCRIPTION
-    To get ffmpeg to display a progress status, I had to first get the video duration using ffprobe. 
-    Using ffprobes value and redirecting ffmpeg stanradr error output to a log, I was able to grab 
-    the last line in the log and find the current transcode spot in the timeline and build a progress 
+    To get ffmpeg to display a progress status, I had to first get the video duration using ffprobe.
+    Using ffprobes value and redirecting ffmpeg stanradr error output to a log, I was able to grab
+    the last line in the log and find the current transcode spot in the timeline and build a progress
     bar actively showing ffmpeg's percentage.
 .NOTES
     Make sure to change the variables paths to your directory
-.LINK 
+.LINK
      - comskip.exe (entire zipped directory) --> https://www.videohelp.com/software/Comskip/old-versions#downloadold
      - ffmpeg.exe --> https://ffmpeg.org/download.html
      - ffprobe.exe (comes with ffmpeg) --> https://ffmpeg.org/download.html
@@ -19,7 +19,6 @@
 ## Variables: Script Name and Script Paths
 [string]$scriptPath = $MyInvocation.MyCommand.Definition
 [string]$scriptName = [IO.Path]::GetFileNameWithoutExtension($scriptPath)
-[string]$scriptFileName = Split-Path -Path $scriptPath -Leaf
 [string]$scriptRoot = Split-Path -Path $scriptPath -Parent
 [string]$invokingScript = (Get-Variable -Name 'MyInvocation').Value.ScriptName
 
@@ -56,15 +55,15 @@ function Get-HugeDirStats($directory) {
     $statistics
 }
 
-function Convert-ToBytes($num) 
+function Convert-ToBytes($num)
 {
     $suffix = "B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"
     $index = 0
-    while ($num -gt 1kb) 
+    while ($num -gt 1kb)
     {
         $num = $num / 1kb
         $index++
-    } 
+    }
 
     "{0:N1} {1}" -f $num, $suffix[$index]
 }
@@ -145,7 +144,7 @@ Function Execute-Process {
 		[ValidateNotNullorEmpty()]
 		[boolean]$ContinueOnError = $false
 	)
-	
+
 	Begin {
 		## Get the name of this function and write header
 		[string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
@@ -153,7 +152,7 @@ Function Execute-Process {
 	Process {
 		Try {
 			$private:returnCode = $null
-			
+
 			## Validate and find the fully qualified path for the $Path variable.
 			If (([IO.Path]::IsPathRooted($Path)) -and ([IO.Path]::HasExtension($Path))) {
 				If (-not (Test-Path -LiteralPath $Path -PathType 'Leaf' -ErrorAction 'Stop')) {
@@ -167,13 +166,13 @@ Function Execute-Process {
 				[string]$PathFolders = $PathFolders + ';' + (Get-Location -PSProvider 'FileSystem').Path
 				#  Add the new path locations to the PATH environment variable
 				$env:PATH = $PathFolders + ';' + $env:PATH
-				
+
 				#  Get the fully qualified path for the file. Get-Command searches PATH environment variable to find this value.
 				[string]$FullyQualifiedPath = Get-Command -Name $Path -CommandType 'Application' -TotalCount 1 -Syntax -ErrorAction 'Stop'
-				
+
 				#  Revert the PATH environment variable to it's original value
 				$env:PATH = $env:PATH -replace [regex]::Escape($PathFolders + ';'), ''
-				
+
 				If ($FullyQualifiedPath) {
 					$Path = $FullyQualifiedPath
 				}
@@ -181,17 +180,17 @@ Function Execute-Process {
 					Throw "[$Path] contains an invalid path or file name."
 				}
 			}
-			
+
 			## Set the Working directory (if not specified)
 			If (-not $WorkingDirectory) { $WorkingDirectory = Split-Path -Path $Path -Parent -ErrorAction 'Stop' }
-			
+
 			Try {
 				## Disable Zone checking to prevent warnings when running executables
 				$env:SEE_MASK_NOZONECHECKS = 1
-				
+
 				## Using this variable allows capture of exceptions from .NET methods. Private scope only changes value for current function.
 				$ErrorActionPreference = 'Stop'
-				
+
 				## Define process
 				$processStartInfo = New-Object -TypeName 'System.Diagnostics.ProcessStartInfo' -ErrorAction 'Stop'
 				$processStartInfo.FileName = $Path
@@ -205,13 +204,12 @@ Function Execute-Process {
 				If ($windowStyle) { $processStartInfo.WindowStyle = $WindowStyle }
 				$process = New-Object -TypeName 'System.Diagnostics.Process' -ErrorAction 'Stop'
 				$process.StartInfo = $processStartInfo
-				
 
 				## Add event handler to capture process's standard output redirection
 				[scriptblock]$processEventHandler = { If (-not [string]::IsNullOrEmpty($EventArgs.Data)) { $Event.MessageData.AppendLine($EventArgs.Data) } }
 				$stdOutBuilder = New-Object -TypeName 'System.Text.StringBuilder' -ArgumentList ''
 				$stdOutEvent = Register-ObjectEvent -InputObject $process -Action $processEventHandler -EventName 'OutputDataReceived' -MessageData $stdOutBuilder -ErrorAction 'Stop'
-				
+
 				## Start Process
 				If ($Parameters) {
 					Write-Log -Message "Executing [$Path $Parameters]..." -Source ${CmdletName} -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
@@ -220,20 +218,20 @@ Function Execute-Process {
 					Write-Log -Message "Executing [$Path]..." -Source $TranscodeJobName -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
 				}
 				[boolean]$processStarted = $process.Start()
-				
+
 				If ($NoWait) {
 					Write-Log -Message 'NoWait parameter specified. Continuing without waiting for exit code...' -Source ${CmdletName}
 				}
 				Else {
 					$process.BeginOutputReadLine()
 					$stdErr = $($process.StandardError.ReadToEnd()).ToString() -replace $null,''
-					
+
 					## Instructs the Process component to wait indefinitely for the associated process to exit.
 					$process.WaitForExit()
-					
+
 					## HasExited indicates that the associated process has terminated, either normally or abnormally. Wait until HasExited returns $true.
-					While (-not ($process.HasExited)) { $process.Refresh(); Start-Sleep -Seconds 1 }
-					
+					While (-not ($process.HasExited)) { $process.Refresh(); Start-Start-Sleep -Seconds 1 }
+
 					## Get the exit code for the process
 					Try {
 						[int32]$returnCode = $process.ExitCode
@@ -242,7 +240,7 @@ Function Execute-Process {
 						#  Catch exit codes that are out of int32 range
 						[int32]$returnCode = 60013
 					}
-					
+
 					## Unregister standard output event to retrieve process output
 					If ($stdOutEvent) { Unregister-Event -SourceIdentifier $stdOutEvent.Name -ErrorAction 'Stop'; $stdOutEvent = $null }
 					$stdOut = $stdOutBuilder.ToString() -replace $null,''
@@ -255,14 +253,14 @@ Function Execute-Process {
 			Finally {
 				## Make sure the standard output event is unregistered
 				If ($stdOutEvent) { Unregister-Event -SourceIdentifier $stdOutEvent.Name -ErrorAction 'Stop'}
-				
+
 				## Free resources associated with the process, this does not cause process to exit
 				If ($process) { $process.Close() }
-				
+
 				## Re-enable Zone checking
 				Remove-Item -LiteralPath 'env:SEE_MASK_NOZONECHECKS' -ErrorAction 'SilentlyContinue'
 			}
-			
+
 			If (-not $NoWait) {
 				## Check to see whether we should ignore exit codes
 				$ignoreExitCodeMatch = $false
@@ -275,7 +273,7 @@ Function Execute-Process {
 				}
 				#  Or always ignore exit codes
 				If ($ContinueOnError) { $ignoreExitCodeMatch = $true }
-				
+
 				## If the passthru switch is specified, return the exit code and any output from process
 				If ($PassThru) {
 					[psobject]$ExecutionResults = New-Object -TypeName 'PSObject' -Property @{ ExitCode = $returnCode; StdOut = $stdOut; StdErr = $stdErr }
@@ -304,7 +302,7 @@ Function Execute-Process {
 		}
 	}
 	End {
-		
+
 	}
 }
 #endregion
@@ -327,7 +325,7 @@ Function Write-Log {
 	Set the log and path of the log file.
 .PARAMETER WriteHost
 	Write the log message to the console.
-    The Severity sets the color: 
+    The Severity sets the color:
 .PARAMETER ContinueOnError
 	Suppress writing log message to console on failure to write message to log file. Default is: $true.
 .PARAMETER PassThru
@@ -339,7 +337,7 @@ Function Write-Log {
 .NOTES
     Taken from http://psappdeploytoolkit.com
 .LINK
-	
+
 #>
     [CmdletBinding()]
     param (
@@ -371,12 +369,12 @@ Function Write-Log {
 		[boolean]$ContinueOnError = $true,
 		[Parameter(Mandatory=$false,Position=8)]
 		[switch]$PassThru = $false
-        
+
     )
     Begin {
 		## Get the name of this function
 		[string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
-		
+
 		## Logging Variables
 		#  Log file date/time
 		[string]$LogTime = (Get-Date -Format 'HH:mm:ss.fff').ToString()
@@ -405,7 +403,7 @@ Function Write-Log {
 			)
 			"<![LOG[$lMessage]LOG]!>" + "<time=`"$LogTimePlusBias`" " + "date=`"$LogDate`" " + "component=`"$lSource`" " + "context=`"$([Security.Principal.WindowsIdentity]::GetCurrent().Name)`" " + "type=`"$lSeverity`" " + "thread=`"$PID`" " + "file=`"$ScriptSource`">"
 		}
-		
+
 		## Create script block for writing log entry to the console
 		[scriptblock]$WriteLogLineToHost = {
 			Param (
@@ -440,7 +438,7 @@ Function Write-Log {
 		[string]$LogFileDirectory = Split-Path -Path $LogFile -Parent
         [string]$LogFileName = Split-Path -Path $LogFile -Leaf
 
-        ## Create the directory where the log file will be saved
+        ## Create the directory Where-Object the log file will be saved
 		If (-not (Test-Path -LiteralPath $LogFileDirectory -PathType 'Container')) {
 			Try {
 				$null = New-Item -Path $LogFileDirectory -Type 'Directory' -Force -ErrorAction 'Stop'
@@ -454,7 +452,7 @@ Function Write-Log {
 				Return
 			}
 		}
-		
+
 		## Assemble the fully qualified path to the log file
 		[string]$LogFilePath = Join-Path -Path $LogFileDirectory -ChildPath $LogFileName
 
@@ -472,14 +470,12 @@ Function Write-Log {
 				1 { $Severity = 1 }
                 0 { $Severity = 1 }
             }
-        
+
         ## If the message is not $null or empty, create the log entry for the different logging methods
-		[string]$CMTraceMsg = ''
 		[string]$ConsoleLogLine = ''
-		[string]$LegacyTextLogLine = ''
 
 		#  Create the CMTrace log message
-	
+
 		#  Create a Console and Legacy "text" log entry
 		[string]$LegacyMsg = "[$LogDate $LogTime]"
 		If ($MsgPrefix) {
@@ -491,10 +487,9 @@ Function Write-Log {
 
         ## Execute script block to create the CMTrace.exe compatible log entry
 		[string]$CMTraceLogLine = & $CMTraceLogString -lMessage $Message -lSource $Source -lSeverity $Severity
-			
-		## 
+
 		[string]$LogLine = $CMTraceLogLine
-			
+
         Try {
 			$LogLine | Out-File -FilePath $LogFilePath -Append -NoClobber -Force -Encoding 'UTF8' -ErrorAction 'Stop'
 		}
@@ -512,7 +507,6 @@ Function Write-Log {
     }
 }
 
-
 Function Pad-Counter {
     Param (
     [string]$Number,
@@ -520,7 +514,6 @@ Function Pad-Counter {
     )
 
     return $Number.PadLeft($MaxPad,"0")
-    
 }
 
 Function Pad-PrefixOutput {
@@ -549,11 +542,12 @@ Function Start-FFMPEGProcess {
     [boolean]$DisplayProgress,
     [switch]$Passes
     )
-    
 
-    #$ffmpegPassArgs =   "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 ""$NewFileFullPath""",
-    #                    "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre normal -pass 2 ""$NewFileFullPath"""
-    $ffmpegPassArgs =   "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y ""$NullFileFullPath""",
+	<#
+	$ffmpegPassArgs =   "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 ""$NewFileFullPath""",
+                       "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre normal -pass 2 ""$NewFileFullPath"""
+	#>
+	$ffmpegPassArgs =   "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y ""$NullFileFullPath""",
                         "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 -y ""$NewFileFullPath"""
    
     If($Passes)
@@ -565,10 +559,10 @@ Function Start-FFMPEGProcess {
                 Write-Log -Message "Executing [$FFMpegPath $Arg]..." -Source ("FFMPEG" + $PassCount + "PASS") -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
                 $ffmpeg = Start-Process $FFMpegPath -ArgumentList $Arg -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
                 #progress bar monitors the trancoding log for time duration and ends when process has exited
-                Start-sleep 3
+                Start-Start-Sleep 3
                 Do{
-                    Start-sleep 1
-                    $ffmpegProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
+                    Start-Start-Sleep 1
+                    $ffmpegProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select-Object -Last 1), '(,|\s+)') | Where-Object {$_ -like "time=*"}
                     If($ffmpegProgress){
                         $gettimevalue = [TimeSpan]::Parse(($ffmpegProgress.Split("=")[1]))
                         $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
@@ -595,11 +589,11 @@ Function Start-FFMPEGProcess {
             Write-Log -Message "Executing [$FFMpegPath $ffmpegCombinedArgs]..." -Source "FFMPEG" -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
             $ffmpeg = Start-Process -FilePath $FFMpegPath -ArgumentList $ffmpegCombinedArgs -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
             #progress bar monitors the trancoding log for time duration and ends when process has exited
-            Start-sleep 3
+            Start-Start-Sleep 3
             Do{
-                Start-sleep 1
+                Start-Start-Sleep 1
                 #parse log every second, get the last line
-                $ffmpegProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
+                $ffmpegProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | -ObSelect-Object -Last 1), '(,|\s+)') | Where-Object {$_ -like "time=*"}
                 #sometime the last line may not have a time value, only display progress when it does
                 If($ffmpegProgress){
                     #The time value is in time-HH.MM.SS.mm, split it off the = and convert it to timespan format
@@ -649,10 +643,11 @@ Function Start-FFMPEGProcess {
 [Boolean]$CheckCommercialSkip = $False
 [string]$CommericalJobName = "COMSKIP"
 
-
+# Get Start Time
+$startDTM = (Get-Date)
 
 [string]$global:LogFilePath = "E:\Data\Processors\Logs\$scriptName-$(Get-Date -Format yyyyMMdd).log"
-$RunningDate = Get-Date
+
 Write-Log -Message ("Script Started [{0}]" -f (Get-Date)) -Source $scriptName -Severity 1 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix $scriptName -UpperCase)
 
 Import-Module BitsTransfer
@@ -680,11 +675,11 @@ Foreach ($file in $FoundLargeFiles){
     $currentCount = $currentCount+1
     [string]$PadCurrentCount = Pad-Counter -Number $currentCount -MaxPad $FoundFileLength
     $FileWriteHostPrefix = Pad-PrefixOutput -Prefix ("File {0} of {1}" -f $PadCurrentCount,$FoundLargeFiles.Count) -UpperCase
-    
+
     #build progress bar for overall process
     $FilePercent = $PadCurrentCount / $FoundLargeFiles.Count * 100
     Write-Progress -id 1 -Activity ("Overall status [{1:N2}%]" -f $FileWriteHostPrefix,$FilePercent) -PercentComplete $FilePercent -Status ("Processing file {0} of {1} : : {2}" -f $PadCurrentCount,$FoundLargeFiles.Count,$file.Name)
-    
+
     #build working directory
     $GUID = $([guid]::NewGuid().ToString().Trim())
     $ParentDir = Split-path $File.FullName -Parent
@@ -699,10 +694,6 @@ Foreach ($file in $FoundLargeFiles){
     $NullFileName = 'null.mp4'
     $NullFileFullPath = Join-Path $WorkingDir -ChildPath $NullFileName
 
-    #build Log file name and path
-    $NewFileLogName = $file.BaseName + '.log'
-    $NewFileLogFullPath = Join-Path $TranscodeLogDir -ChildPath $NewFileLogName
-    
     #get duration of video to calculate progress bar. If durastion is not found, do not display progress bar
     Write-Log -Message ("Probing file [{0}] for duration time" -f $file.Name) -Source $TranscodeJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix 
     $Progress = $false
@@ -712,7 +703,7 @@ Foreach ($file in $FoundLargeFiles){
 
     #Treat .ts files differently than others
     #if extension is .ts this means it was recorded by a tuner
-    #process it for commercialsand transcode it with 2 passes. 
+    #process it for commercialsand transcode it with 2 passes.
     If($file.Extension -eq '.ts'){
         If($CheckCommercialSkip){
             Write-Log -Message ("Recorded File found [{0}], removing commercials..." -f $file.Name) -Source $CommericalJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
@@ -723,7 +714,7 @@ Foreach ($file in $FoundLargeFiles){
             }
             If($comskip.ExitCode -eq 0)
             {
-                Write-Log -Message ("Successfully processed commercials from file [{0}]." -f $file.FullName) -Source $CommericalJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+                Write-Log -Message ("Successfully processed commercials from file [{0}]." -f $file.FullName) -Source $CommericalJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix
             }
             Else{
                 Write-Log -Message ("Fail to pull commercials from file [{0}]. Error: {1}:{2}" -f $file.FullName,$comskip.ExitCode,$comskip.StdErr) -Source $CommericalJobName -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix
@@ -734,21 +725,21 @@ Foreach ($file in $FoundLargeFiles){
 
         If($Transcode2PassAlways -and ($File.Length -gt $FindSizeGreaterThan) ){
             #now re-encode the video to reduce it size
-            Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding 2 passes to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+            Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding 2 passes to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix
             $ffmpegCombinedArgs = "-f mp4 -ac 2 -ar 44100 -threads 4 -c:v libx264 -c:a ac3 -crf 30 -preset fast"
             $ffmpeg = Start-FFMPEGProcess -DisplayProgress $Progress -Passes
-        } 
+        }
 
-    } 
+    }
     Else {
 
         #if a time duration was found, a progess bar can be used
         If($Transcode2PassAlways){
             #now re-encode the video to reduce it size
-            Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding 2 passes to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+            Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding 2 passes to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix
 
             $ffmpeg = Start-FFMPEGProcess -DisplayProgress $Progress -Passes
-        } 
+        }
         Else{
 
             #build ffmpeg arguments
@@ -769,8 +760,8 @@ Foreach ($file in $FoundLargeFiles){
             #Get video resolution to determine ffmpeg argument
             $ffprobeRes = Execute-Process -Path $FFProbePath -Parameters "-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 ""$($file.FullName)""" -PassThru
             #sometimes videow have mutlple streams with resolutions of the same, we just need one
-            $vidres = (($ffprobeRes.StdOut) -split '[\r\n]') |? {$_} | Select -First 1
-            #If any of the resolutiuons exist, add a ffmpeg paramter to reduce it. 
+            $vidres = (($ffprobeRes.StdOut) -split '[\r\n]') | Where-Object {$_} | Select-Object -First 1
+            #If any of the resolutiuons exist, add a ffmpeg paramter to reduce it.
             $ffmpegVidArgs = ''
             switch( $vidres ){
                 '1920x1080' {$ffmpegVidArgs = '-s 4cif'}
@@ -780,13 +771,13 @@ Foreach ($file in $FoundLargeFiles){
                 '128×96'    {$ffmpegVidArgs = '-vf super2xsai'}
                 '256×192'   {$ffmpegVidArgs = '-vf super2xsai'}
             }
-    
+
             #combine all the parameter to build the main string
             $ffmpegCombinedArgs  = "-y -i ""$($file.FullName)"" $ffmpegAlwaysUseArgs $ffmpegVidArgs $ffmpegExtArgs ""$NewFileFullPath"""
             #$ffmpegCombinedArgs  = "-y -i ""$($file.FullName)"" $ffmpegAlwaysUseArgs $ffmpegVidArgs $ffmpegExtArgs ""$NewFileFullPath"" 2> ""$TranscodeLogDir\$GUID.log"""
             #now re-encode the video to reduce it size
             Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding process to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
-        
+
             $ffmpeg = Start-FFMPEGProcess -DisplayProgress $Progress
 
             $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
@@ -797,7 +788,7 @@ Foreach ($file in $FoundLargeFiles){
             #Check if size is larger than specified size , if so try to ruyn two pass on it
             If($NewFile.Length -gt $FindSizeGreaterThan){
                 Write-Log -Message ("[{0}] is STILL too large [{1}], will try to run 2 passes reduce file size" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
-            
+
                 $ffmpeg = Start-FFMPEGProcess -DisplayProgress $Progress -Passes
             }
         }
@@ -806,15 +797,15 @@ Foreach ($file in $FoundLargeFiles){
         $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
         $NewSize = Convert-ToBytes $NewFile.Length
         If($NewFile.Length -lt $FindSizeGreaterThan){
-        
+
             Write-Log -Message ("[{0}] has been reduced to [{1}]" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix
 
             #move file back to original location
             Write-Log -Message ("Transferring [{0}] to [{1}]" -f $NewFile.FullName,$ParentDir) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
             $bits = Start-BitsTransfer -Source "$NewFileFullPath" -Destination $ParentDir -Description "Transferring to $ParentDir" -DisplayName "Moving $NewFileName" -Asynchronous
- 
-            While ($bits.JobState -eq "Transferring") {
-                Sleep -Seconds 1
+
+			While ($bits.JobState -eq "Transferring") {
+                Start-Sleep -Seconds 1
             }
  
             If ($bits.InternalErrorCode -ne 0) {
@@ -825,7 +816,6 @@ Foreach ($file in $FoundLargeFiles){
                 #remove original file
                 Write-Log -Message ("Deleting original file [{0}]" -f $File.FullName) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
                 Remove-Item "$($file.FullName)" -Force -ErrorAction SilentlyContinue | Out-Null
-            
 
                 #Record video information
                 [psobject]$vids = New-Object -TypeName 'PSObject' -Property @{
@@ -848,8 +838,8 @@ Foreach ($file in $FoundLargeFiles){
             Remove-Item $WorkingDir -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
             Continue
         }
-    }
-    
+	}
+	
     #remove working directory
     Write-Log -Message ("Removing working directory [{0}]" -f $WorkingDir) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
     Remove-Item $WorkingDir -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
@@ -857,6 +847,11 @@ Foreach ($file in $FoundLargeFiles){
 }
 
 $SearchFolderStatsAfter = Get-HugeDirStats $searchDir
+$shrinkspace = ( ($SearchFolderStatsBefore.Size - $SearchFolderStatsAfter.Size) / 1gb)
 
-Write-Log -Message ("Script Completed [{0}]" -f (Get-Date)) -Source $scriptName -Severity 1 -WriteHost -MsgPrefix $scriptName 
+# Get End Time
+$endDTM = (Get-Date)
+
+$ts =  [timespan]::fromseconds(($endDTM-$startDTM).totalseconds)
+Write-Log -Message ("Script Completed on [{0}] in [{1}]. Saved [{2}] in file space" -f (Get-Date),$ts.ToString("hh\:mm\:ss\,fff"),$shrinkspace) -Source $scriptName -Severity 1 -WriteHost -MsgPrefix $scriptName 
 return $res
