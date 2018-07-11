@@ -623,9 +623,12 @@ Function Start-FFMPEGProcess {
 
 [string]$searchDir = 'F:\Media\TV Series'
 [int32]$FindSizeGreaterThan = 800MB
+
+[boolean]$UsePlexComSkip = $false
 [string]$PythonPath = 'C:\Python27\python.exe'
 [string]$PlexDVRComSkipScriptPath = 'E:\Data\Plex\DVRPostProcessingScript\comskip81_098\PlexComskip.py'
 [string]$ComSkipPath = 'E:\Data\Plex\DVRPostProcessingScript\comskip82_003'
+
 [string]$FFMpegPath = 'E:\Data\Plex\DVRPostProcessingScript\ffmpeg\bin\ffmpeg.exe'
 [string]$FFProbePath = 'E:\Data\Plex\DVRPostProcessingScript\ffmpeg\bin\ffprobe.exe'
 [string]$TranscodeDir = 'G:\TranscoderTempDirectory\ComskipInterstitialDirectory'
@@ -705,8 +708,11 @@ Foreach ($file in $FoundLargeFiles){
     If($file.Extension -eq '.ts'){
         If($CheckCommercialSkip){
             Write-Log -Message ("Recorded File found [{0}], removing commercials..." -f $file.Name) -Source $CommericalJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
-            #Write-Log -Message "RUNNING COMMAND: $PythonPath $PlexDVRComSkipScriptPath ""$($file.FullName)""" -Source $CommericalJobName -Severity 4 -WriteHost
-            $comskip = Execute-Process -Path "$ComSkipPath\comskip.exe" -Parameters "--output ""$WorkingDir"" --ini ""$ComSkipPath\comskip.ini"" ""$($file.FullName)""" -CreateNoWindow -PassThru
+            If($UsePlexComSkip){
+                $comskip = Execute-Process -Path $PythonPath -Parameters "$PlexDVRComSkipScriptPath ""$($file.FullName)""" -CreateNoWindow -PassThru
+            }Else{
+                $comskip = Execute-Process -Path "$ComSkipPath\comskip.exe" -Parameters "--output ""$WorkingDir"" --ini ""$ComSkipPath\comskip.ini"" ""$($file.FullName)""" -CreateNoWindow -PassThru
+            }
             If($comskip.ExitCode -eq 0)
             {
                 Write-Log -Message ("Successfully processed commercials from file [{0}]." -f $file.FullName) -Source $CommericalJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix 
