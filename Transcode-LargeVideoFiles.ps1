@@ -536,6 +536,85 @@ Function Pad-PrefixOutput {
     }
 }
 
+Function Start-FFMPEGProcess {
+    Param (
+    [boolean]$DisplayProgress,
+    [switch]$Passes
+    )
+    
+
+    #$ffmpegPassArgs =   "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 ""$NewFileFullPath""",
+    #                    "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre normal -pass 2 ""$NewFileFullPath"""
+    $ffmpegPassArgs =   "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y ""$NullFileFullPath""",
+                        "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 -y ""$NewFileFullPath"""
+   
+    If($Passes)
+    {
+        $PassCount = 1
+        Foreach ($Arg in $ffmpegPassArgs){
+
+            If($DisplayProgress){
+                Write-Log -Message "Executing [$FFMpegPath $Arg]..." -Source ("FFMPEG" + $PassCount + "PASS") -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
+                $ffmpeg = Start-Process $FFMpegPath -ArgumentList $Arg -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
+                #progress bar monitors the trancoding log for time duration and ends when process has exited
+                Start-sleep 3
+                Do{
+                    Start-sleep 1
+                    $ffmpegProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
+                    If($ffmpegProgress){
+                        $gettimevalue = [TimeSpan]::Parse(($ffmpegProgress.Split("=")[1]))
+                        $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
+                        $a = [datetime]::ParseExact($starttime,"HH:mm:ss,fff",$null)
+                        $ffmpegTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
+                        $ffmpegPercent = $ffmpegTimelapse / $totalTime * 100
+                        Write-Progress -id 2 -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $ffmpegPercent -Status ("Video Pass {0} is {1:N2}% completed..." -f $PassCount,$ffmpegPercent)
+                    }
+
+                }Until ($ffmpeg.HasExited)
+            }
+            Else{
+                #build new filename and path for pass
+                $ffmpeg = Execute-Process -Path $FFMpegPath -Parameters $Arg -CreateNoWindow -PassThru
+            }
+            $PassCount = $PassCount +1
+        }
+
+    }
+    Else {
+        If($DisplayProgress){
+     
+            Write-Log -Message ("Procssing new file [{0}]" -f $NewFileFullPath) -Source $TranscodeJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+            Write-Log -Message "Executing [$FFMpegPath $ffmpegCombinedArgs]..." -Source "FFMPEG" -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
+            $ffmpeg = Start-Process -FilePath $FFMpegPath -ArgumentList $ffmpegCombinedArgs -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
+            #progress bar monitors the trancoding log for time duration and ends when process has exited
+            Start-sleep 3
+            Do{
+                Start-sleep 1
+                #parse log every second, get the last line
+                $ffmpegProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
+                #sometime the last line may not have a time value, only display progress when it does
+                If($ffmpegProgress){
+                    #The time value is in time-HH.MM.SS.mm, split it off the = and convert it to timespan format
+                    $gettimevalue = [TimeSpan]::Parse(($ffmpegProgress.Split("=")[1]))
+                    #send it to a string to be converted to datetime
+                    $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
+                    $a = [datetime]::ParseExact($starttime,"HH:mm:ss,fff",$null)
+                    #now convert it into seconds to match ffprobe duration format
+                    $ffmpegTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
+                    #divide them to get the percentage
+                    $ffmpegPercent = $ffmpegTimelapse / $totalTime * 100
+                    #display time
+                    Write-Progress -id 2 -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $ffmpegPercent -Status ("Video is {0:N2}% completed..." -f $ffmpegPercent)
+                }
+            }Until ($ffmpeg.HasExited)
+        }
+        Else{
+            $ffmpeg = Execute-Process -Path $FFMpegPath -Parameters $ffmpegCombinedArgs -CreateNoWindow -PassThru
+        }
+    }
+
+}
+
 ##*===============================================
 ##* VARIABLE DECLARATION
 ##*===============================================
@@ -546,17 +625,19 @@ Function Pad-PrefixOutput {
 [int32]$FindSizeGreaterThan = 800MB
 [string]$PythonPath = 'C:\Python27\python.exe'
 [string]$PlexDVRComSkipScriptPath = 'E:\Data\Plex\DVRPostProcessingScript\comskip81_098\PlexComskip.py'
+[string]$ComSkipPath = 'E:\Data\Plex\DVRPostProcessingScript\comskip82_003'
 [string]$FFMpegPath = 'E:\Data\Plex\DVRPostProcessingScript\ffmpeg\bin\ffmpeg.exe'
 [string]$FFProbePath = 'E:\Data\Plex\DVRPostProcessingScript\ffmpeg\bin\ffprobe.exe'
 [string]$TranscodeDir = 'G:\TranscoderTempDirectory\ComskipInterstitialDirectory'
 [string]$TranscodeLogDir = 'E:\Data\Plex\DVRPostProcessingScript\Logs'
 
+[boolean]$Transcode2PassAlways = $false
 [int32]$TranscodePasses = 2
-
-[boolean]$RunAsync = $false
 [string]$TranscodeJobName = "FFMPEG"
+
+[Boolean]$CheckCommercialSkip = $False
 [string]$CommericalJobName = "COMSKIP"
-[int32]$maxConcurrentJobs = 10
+
 
 
 [string]$global:LogFilePath = "E:\Data\Processors\Logs\$scriptName-$(Get-Date -Format yyyyMMdd).log"
@@ -611,207 +692,153 @@ Foreach ($file in $FoundLargeFiles){
     $NewFileLogName = $file.BaseName + '.log'
     $NewFileLogFullPath = Join-Path $TranscodeLogDir -ChildPath $NewFileLogName
     
-    #build ffmpeg arguments
-    $ffmpegAlwaysUseArgs = "-f mp4 -ac 2 -ar 44100 -threads 4"
-
-    #get video extention to detemine ffmpeg arguments
-    switch($file.Extension){
-        '.ts'   {$ffmpegExtArgs = '-c:v libx264 -c:a ac3 -crf 30 -preset fast'}
-        '.avi'  {$ffmpegExtArgs = '-c:v libx264 -c:a aac -b:a 128k -crf 20 -preset fast'}
-        '.mkv'  {$ffmpegExtArgs = '-c:v libx264 -c:a copy -crf 23'}
-        '.mp4'  {$ffmpegExtArgs = '-c:v libx264 -crf 20 -preset veryfast -profile:v baseline'}
-        '.wmv'  {$ffmpegExtArgs = '-c:v libx264 -c:a aac -crf 23-strict -2 -q:a 100 -preset fast'}
-        '.mpeg' {$ffmpegExtArgs = '-c:v libx264 -c:a aac -b:a 128k -crf 20 -preset fast'}
-        '.mpg'  {$ffmpegExtArgs = '-c:v copy -c:a ac3 -crf 30 -preset veryfast'}
-        '.vob'  {$ffmpegExtArgs = '-c:v mpeg4 -c:a libmp3lame -b:v 800k -g 300 -bf 2  -b:a 128k'}
-        default {$ffmpegExtArgs = '-c:v copy -c:a copy -crf 30 -preset veryfast'}
-    }
-
-    #Get video resolution to determine ffmpeg argument
-    $ffprobeRes = Execute-Process -Path $FFProbePath -Parameters "-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 ""$($file.FullName)""" -PassThru
-    #sometimes videow have mutlple streams with resolutions of the same, we just need one
-    $vidres = (($ffprobeRes.StdOut) -split '[\r\n]') |? {$_} | Select -First 1
-    #If any of the resolutiuons exist, add a ffmpeg paramter to reduce it. 
-    $ffmpegVidArgs = ''
-    switch( $vidres ){
-        '1920x1080' {$ffmpegVidArgs = '-s 4cif'}
-        '1280x720'  {$ffmpegVidArgs = '-s 4cif'}
-        '1280x718'  {$ffmpegVidArgs = '-s hd720'}
-        '1280x714'  {$ffmpegVidArgs = '-s hd720'}
-        '128×96'    {$ffmpegVidArgs = '-vf super2xsai'}
-        '256×192'   {$ffmpegVidArgs = '-vf super2xsai'}
-    }
-
-
-    #if extension is ts this means it was recorded by a tuner, process it for commercials just in case 
-    If($file.Extension -eq '.ts'){
-        Write-Log -Message ("Recorded File found [{0}], removing commercials..." -f $file.Name) -Source $CommericalJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
-        #Write-Log -Message "RUNNING COMMAND: $PythonPath $PlexDVRComSkipScriptPath ""$($file.FullName)""" -Source $CommericalJobName -Severity 4 -WriteHost
-        $comskip = Execute-Process -Path $PythonPath -Parameters "$PlexDVRComSkipScriptPath ""$($file.FullName)""" -CreateNoWindow -PassThru
-        #$comskip = Start-Process $PythonPath -ArgumentList "$PlexDVRComSkipScriptPath ""$($file.FullName)""" -NoNewWindow -Wait -PassThru
-        If($comskip.ExitCode -eq 0)
-        {
-            Write-Log -Message ("Successfully processed commercials from file [{0}]." -f $file.FullName) -Source $CommericalJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix 
-        }
-        Else{
-            Write-Log -Message ("Fail to pull commercials from file [{0}]. Error: {1}:{2}" -f $file.FullName,$comskip.ExitCode,$comskip.StdErr) -Source $CommericalJobName -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix
-        }
-    }
-    
-    #combine all the parameter to build the main string
-    $ffmpegCombinedArgs  = "-y -i ""$($file.FullName)"" $ffmpegAlwaysUseArgs $ffmpegVidArgs $ffmpegExtArgs ""$NewFileFullPath"""
-    #$ffmpegCombinedArgs  = "-y -i ""$($file.FullName)"" $ffmpegAlwaysUseArgs $ffmpegVidArgs $ffmpegExtArgs ""$NewFileFullPath"" 2> ""$TranscodeLogDir\$GUID.log"""
-    #now re-encode the video to reduce it size
-    Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding process to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
-    
-    #get duration of video to calculate progress bar
+    #get duration of video to calculate progress bar. If durastion is not found, do not display progress bar
     Write-Log -Message ("Probing file [{0}] for duration time" -f $file.Name) -Source $TranscodeJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+    $Progress = $false
     $ffprobeDur = Execute-Process -Path $FFProbePath -Parameters "-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ""$($file.FullName)""" -CreateNoWindow -PassThru
     $totalTime = $ffprobeDur.StdOut
+    If($totalTime){$Progress = $true}
 
-    #if a time duration was found, a progess bar can be used
-    If($totalTime){
-        Write-Log -Message ("Procssing new file [{0}]" -f $NewFileFullPath) -Source $TranscodeJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix 
-        Write-Log -Message "Executing [$FFMpegPath $ffmpegCombinedArgs]..." -Source "FFMPEG" -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
-        $ffmpeg = Start-Process -FilePath $FFMpegPath -ArgumentList $ffmpegCombinedArgs -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
-        #progress bar monitors the trancoding log for time duration and ends when process has exited
-        Do{
-            Start-sleep 1
-            #parse log every second, get the last line
-            $ffmpegProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
-            #sometime the last line may not have a time value, only display progress when it does
-            If($ffmpegProgress){
-                #The time value is in time-HH.MM.SS.mm, split it off the = and convert it to timespan format
-                $gettimevalue = [TimeSpan]::Parse(($ffmpegProgress.Split("=")[1]))
-                #send it to a string to be converted to datetime
-                $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
-                $a = [datetime]::ParseExact($starttime,"HH:mm:ss,fff",$null)
-                #now convert it into seconds to match ffprobe suration format
-                $ffmpegTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
-                #divide them to get the percentage
-                $ffmpegPercent = $ffmpegTimelapse / $totalTime * 100
-                #display time
-                Write-Progress -id 2 -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $ffmpegPercent -Status ("Video is {0:N2}% completed..." -f $ffmpegPercent)
-            }
-        }Until ($ffmpeg.HasExited)
-    }Else{
-        $ffmpeg = Execute-Process -Path $FFMpegPath -Parameters $ffmpegCombinedArgs -CreateNoWindow -PassThru
-    }
-
-    If($ffmpeg.ExitCode -eq 0)
-    {
-        $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
-        $NewSize = Convert-ToBytes $NewFile.Length
-        $NewFilefProbe = Execute-Process -Path $FFProbePath -Parameters "-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 ""$NewFileFullPath""" -CreateNoWindow -PassThru
-        $NewVidRes = ($NewFilefProbe.StdOut).Trim()
-
-        #Check if size is larger than specified size , if so try to ruyn two pass on it
-        If($TranscodePasses -eq 2 -and $NewFile.Length -gt $FindSizeGreaterThan){
-            Write-Log -Message ("[{0}] is STILL too large [{1}], will try to run 2 passes reduce file size" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
-            
-            #if a time duration was found, a progess bar can be used
-            If($totalTime){
-                #build new filename and path for pass 
-                Write-Log -Message "Executing [$FFMpegPath -i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y ""$NullFileFullPath""]..." -Source "FFMPEG1PASS" -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
-                $ffmpeg1pass = Start-Process $FFMpegPath -ArgumentList "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y ""$NullFileFullPath""" -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
-                #progress bar monitors the trancoding log for time duration and ends when process has exited
-                Do{
-                    Start-sleep 1
-                    $ffmpeg1passProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
-                    If($ffmpeg1passProgress){
-                        $gettimevalue = [TimeSpan]::Parse(($ffmpeg1passProgress.Split("=")[1]))
-                        $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
-                        $a = [datetime]::ParseExact($starttime,"HH:mm:ss,fff",$null)
-                        $ffmpeg1passTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
-                        $ffmpeg1passPercent = $ffmpeg1passTimelapse / $totalTime * 100
-                        Write-Progress -id 2 -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $ffmpeg1passPercent -Status ("Video Pass 1 is {0:N2}% completed..." -f $ffmpeg1passPercent)
-                    }
-
-                }Until ($ffmpeg1pass.HasExited)
-
-                #build new filename and path for pass 2
-                Write-Log -Message "Executing [$FFMpegPath -i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 -y ""$NewFileFullPath""]..." -Source "FFMPEG2PASS" -Severity 4 -WriteHost -MsgPrefix (Pad-PrefixOutput -Prefix "Running Command"  -UpperCase)
-                $ffmpeg2pass = Start-Process $FFMpegPath -ArgumentList "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 -y ""$NewFileFullPath""" -RedirectStandardError "$TranscodeLogDir\$GUID.log" -WindowStyle Hidden -PassThru
-                #progress bar monitors the trancoding log for time duration and ends when process has exited
-                Do{
-                    Start-sleep 1
-                    $ffmpeg2passProgress = [regex]::split((Get-content "$TranscodeLogDir\$GUID.log" | Select -Last 1), '(,|\s+)') | where {$_ -like "time=*"}
-                    If($ffmpeg2passProgress){
-                        $gettimevalue = [TimeSpan]::Parse(($ffmpeg2passProgress.Split("=")[1]))
-                        $starttime = $gettimevalue.ToString("hh\:mm\:ss\,fff") 
-                        $a = [datetime]::ParseExact($starttime,"HH:mm:ss,fff",$null)
-                        $ffmpeg2passTimelapse = (New-TimeSpan -Start (Get-Date).Date -End $a).TotalSeconds
-                        $ffmpeg2passPercent = $ffmpeg2passTimelapse / $totalTime * 100
-                        Write-Progress -id 2 -Activity ("Transcoding {0}" -f $file.FullName) -PercentComplete $ffmpeg2passPercent -Status ("Video Pass 2 is {0:N2}% completed..." -f $ffmpeg2passPercent)
-                    }
-
-                }Until ($ffmpeg2pass.HasExited)
+    #Treat .ts files differently than others
+    #if extension is .ts this means it was recorded by a tuner
+    #process it for commercialsand transcode it with 2 passes. 
+    If($file.Extension -eq '.ts'){
+        If($CheckCommercialSkip){
+            Write-Log -Message ("Recorded File found [{0}], removing commercials..." -f $file.Name) -Source $CommericalJobName -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
+            #Write-Log -Message "RUNNING COMMAND: $PythonPath $PlexDVRComSkipScriptPath ""$($file.FullName)""" -Source $CommericalJobName -Severity 4 -WriteHost
+            $comskip = Execute-Process -Path "$ComSkipPath\comskip.exe" -Parameters "--output ""$WorkingDir"" --ini ""$ComSkipPath\comskip.ini"" ""$($file.FullName)""" -CreateNoWindow -PassThru
+            If($comskip.ExitCode -eq 0)
+            {
+                Write-Log -Message ("Successfully processed commercials from file [{0}]." -f $file.FullName) -Source $CommericalJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix 
             }
             Else{
-                #build new filename and path for pass 1
-                #$ffmpeg1pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre fastfirstpass -pass 1 ""$NewFileFullPath""" -CreateNoWindow -PassThru
-                $ffmpeg1pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 1 -an -f rawvideo -y nul.avi" -CreateNoWindow -PassThru
-  
-                #build new filename and path for pass 2
-                #$ffmpeg2pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libx264 -ac 1 -vpre normal -pass 2 ""$NewFileFullPath""" -CreateNoWindow -PassThru
-                $ffmpeg2pass = Execute-Process -Path $FFMpegPath -Parameters "-i ""$($file.FullName)"" -vcodec libxvid -q:v 5 -s 640x480 -aspect 640:480 -r 30 -g 300 -bf 2 -acodec libmp3lame -ab 160k -ar 32000 -async 32000 -ac 2 -pass 2 ""$NewFileFullPath""" -CreateNoWindow -PassThru
+                Write-Log -Message ("Fail to pull commercials from file [{0}]. Error: {1}:{2}" -f $file.FullName,$comskip.ExitCode,$comskip.StdErr) -Source $CommericalJobName -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix
             }
+        }Else{
+            Write-Log -Message ("Recorded File found [{0}], skipping commercials check..." -f $file.Name) -Source $CommericalJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix
+        }
+
+        If($Transcode2PassAlways -and ($File.Length -gt $FindSizeGreaterThan) ){
+            #now re-encode the video to reduce it size
+            Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding 2 passes to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+            $ffmpegCombinedArgs = "-f mp4 -ac 2 -ar 44100 -threads 4 -c:v libx264 -c:a ac3 -crf 30 -preset fast"
+            $ffmpeg = Start-FFMPEGProcess -DisplayProgress $Progress -Passes
+        } 
+
+    } 
+    Else {
+
+        #if a time duration was found, a progess bar can be used
+        If($Transcode2PassAlways){
+            #now re-encode the video to reduce it size
+            Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding 2 passes to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+
+            $ffmpeg = Start-FFMPEGProcess -DisplayProgress $Progress -Passes
+        } 
+        Else{
+
+            #build ffmpeg arguments
+            $ffmpegAlwaysUseArgs = "-f mp4 -ac 2 -ar 44100 -threads 4"
+
+            #get video extention to detemine ffmpeg arguments
+            switch($file.Extension){
+                '.avi'  {$ffmpegExtArgs = '-c:v libx264 -c:a aac -b:a 128k -crf 20 -preset fast'}
+                '.mkv'  {$ffmpegExtArgs = '-c:v libx264 -c:a copy -crf 23'}
+                '.mp4'  {$ffmpegExtArgs = '-c:v libx264 -crf 20 -preset veryfast -profile:v baseline'}
+                '.wmv'  {$ffmpegExtArgs = '-c:v libx264 -c:a aac -crf 23-strict -2 -q:a 100 -preset fast'}
+                '.mpeg' {$ffmpegExtArgs = '-c:v libx264 -c:a aac -b:a 128k -crf 20 -preset fast'}
+                '.mpg'  {$ffmpegExtArgs = '-c:v copy -c:a ac3 -crf 30 -preset veryfast'}
+                '.vob'  {$ffmpegExtArgs = '-c:v mpeg4 -c:a libmp3lame -b:v 800k -g 300 -bf 2  -b:a 128k'}
+                default {$ffmpegExtArgs = '-c:v copy -c:a copy -crf 30 -preset veryfast'}
+            }
+
+            #Get video resolution to determine ffmpeg argument
+            $ffprobeRes = Execute-Process -Path $FFProbePath -Parameters "-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 ""$($file.FullName)""" -PassThru
+            #sometimes videow have mutlple streams with resolutions of the same, we just need one
+            $vidres = (($ffprobeRes.StdOut) -split '[\r\n]') |? {$_} | Select -First 1
+            #If any of the resolutiuons exist, add a ffmpeg paramter to reduce it. 
+            $ffmpegVidArgs = ''
+            switch( $vidres ){
+                '1920x1080' {$ffmpegVidArgs = '-s 4cif'}
+                '1280x720'  {$ffmpegVidArgs = '-s 4cif'}
+                '1280x718'  {$ffmpegVidArgs = '-s hd720'}
+                '1280x714'  {$ffmpegVidArgs = '-s hd720'}
+                '128×96'    {$ffmpegVidArgs = '-vf super2xsai'}
+                '256×192'   {$ffmpegVidArgs = '-vf super2xsai'}
+            }
+    
+            #combine all the parameter to build the main string
+            $ffmpegCombinedArgs  = "-y -i ""$($file.FullName)"" $ffmpegAlwaysUseArgs $ffmpegVidArgs $ffmpegExtArgs ""$NewFileFullPath"""
+            #$ffmpegCombinedArgs  = "-y -i ""$($file.FullName)"" $ffmpegAlwaysUseArgs $ffmpegVidArgs $ffmpegExtArgs ""$NewFileFullPath"" 2> ""$TranscodeLogDir\$GUID.log"""
+            #now re-encode the video to reduce it size
+            Write-Log -Message ("[{0}] is too large [{1}]. Preparing re-transcoding process to reduce file size" -f $file.Name,$Size) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
+        
+            $ffmpeg = Start-FFMPEGProcess -DisplayProgress $Progress
+
+            $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
+            $NewSize = Convert-ToBytes $NewFile.Length
+            $NewFilefProbe = Execute-Process -Path $FFProbePath -Parameters "-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 ""$NewFileFullPath""" -CreateNoWindow -PassThru
+            $NewVidRes = ($NewFilefProbe.StdOut).Trim()
+
+            #Check if size is larger than specified size , if so try to ruyn two pass on it
+            If($NewFile.Length -gt $FindSizeGreaterThan){
+                Write-Log -Message ("[{0}] is STILL too large [{1}], will try to run 2 passes reduce file size" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName -Severity 2 -WriteHost -MsgPrefix $FileWriteHostPrefix 
             
-            If($ffmpeg1pass.ExitCode -eq 0 -and $ffmpeg2pass.ExitCode -eq 0){
-                $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
-                $NewSize = Convert-ToBytes $NewFile.Length
-                Write-Log -Message ("[{0}] has been reduced to [{1}]" -f $NewFile.Name,$NewSize) -Source 'FFMPEG2PASS' -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix
-            }Else{
-                 Write-Log -Message ("ffmpeg 2 pass failed to transcode [{0}]" -f $file.Name) -Source 'FFMPEG2PASS' -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix
+                $ffmpeg = Start-FFMPEGProcess -DisplayProgress $Progress -Passes
+            }
+        }
+
+        #if transocde file is smaller than orginial, concider it an success
+        $NewFile = Get-Childitem $NewFileFullPath -ErrorAction "SilentlyContinue"
+        $NewSize = Convert-ToBytes $NewFile.Length
+        If($NewFile.Length -lt $FindSizeGreaterThan){
+        
+            Write-Log -Message ("[{0}] has been reduced to [{1}]" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix
+
+            #move file back to original location
+            Write-Log -Message ("Transferring [{0}] to [{1}]" -f $NewFile.FullName,$ParentDir) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
+            $bits = Start-BitsTransfer -Source "$NewFileFullPath" -Destination $ParentDir -Description "Transferring to $ParentDir" -DisplayName "Moving $NewFileName" -Asynchronous
+ 
+            While ($bits.JobState -eq "Transferring") {
+                Sleep -Seconds 1
+            }
+ 
+            If ($bits.InternalErrorCode -ne 0) {
+                Write-Log -Message ("Fail to transfer [{0}]. Error: {1}" -f $NewFile.FullName,$bits.InternalErrorCode) -Source 'BITS' -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix  
+            } else {
+                Write-Log -Message ("Successfully transferred [{0}] to [{1}]" -f $NewFile.FullName,$ParentDir) -Source 'BITS' -Severity $bits.InternalErrorCode -WriteHost -MsgPrefix $FileWriteHostPrefix
+
+                #remove original file
+                Write-Log -Message ("Deleting original file [{0}]" -f $File.FullName) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
+                Remove-Item "$($file.FullName)" -Force -ErrorAction SilentlyContinue | Out-Null
+            
+
+                #Record video information
+                [psobject]$vids = New-Object -TypeName 'PSObject' -Property @{
+                    OriginalRes  = $vidres
+                    OriginalSize = Convert-ToBytes $file.Length
+                    OriginalName = $file.Name
+                    Filepath = Split-Path $file.FullName -Parent
+                    NewName = $NewFileName
+                    NewSize = Convert-ToBytes $NewFile.Length
+                    NewRes = $NewVidRes
+                    GUID = $GUID
+                    }
+                $res += $vids
+
             }
         }
         Else{
-            Write-Log -Message ("[{0}] has been reduced to [{1}]" -f $NewFile.Name,$NewSize) -Source $TranscodeJobName -Severity 0 -WriteHost -MsgPrefix $FileWriteHostPrefix
-        }
-
-
-        #move file back to original location
-        Write-Log -Message ("Transferring [{0}] to [{1}]" -f $NewFile.FullName,$ParentDir) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
-        $bits = Start-BitsTransfer -Source "$NewFileFullPath" -Destination $ParentDir -Description "Transferring to $ParentDir" -DisplayName "Moving $NewFileName" -Asynchronous
- 
-        While ($bits.JobState -eq "Transferring") {
-            Sleep -Seconds 1
-        }
- 
-        If ($bits.InternalErrorCode -ne 0) {
-            Write-Log -Message ("Fail to transfer [{0}]. Error: {1}" -f $NewFile.FullName,$bits.InternalErrorCode) -Source 'BITS' -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix  
-        } else {
-            Write-Log -Message ("Successfully transferred [{0}] to [{1}]" -f $NewFile.FullName,$ParentDir) -Source 'BITS' -Severity $bits.InternalErrorCode -WriteHost -MsgPrefix $FileWriteHostPrefix
-
-            #remove original file
-            Write-Log -Message ("Deleting original file [{0}]" -f $File.FullName) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
-            Remove-Item "$($file.FullName)" -Force -ErrorAction SilentlyContinue | Out-Null
-    
-            #remove working directory
-            Write-Log -Message ("Removing working directory [{0}]" -f $WorkingDir) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
+            Write-Log -Message ("Transcode failed to reduce the file [{0}], size is [{1}]" -f $NewFileFullPath,$NewSize) -Source $TranscodeJobName -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix
+            #remove working directory if failed
             Remove-Item $WorkingDir -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-
-            #Record video information
-            [psobject]$vids = New-Object -TypeName 'PSObject' -Property @{
-                OriginalRes  = $vidres
-                OriginalSize = Convert-ToBytes $file.Length
-                OriginalName = $file.Name
-                Filepath = Split-Path $file.FullName -Parent
-                NewName = $NewFileName
-                NewSize = Convert-ToBytes $NewFile.Length
-                NewRes = $NewVidRes
-                GUID = $GUID
-                }
-            $res += $vids
-
+            Continue
         }
     }
-    Else{
-        Write-Log -Message ("Fail to transcode [{0}]. Error: {1}:{2}" -f $NewFileFullPath,$ffmpeg.ExitCode,$ffmpeg.StdErr) -Source $TranscodeJobName -Severity 3 -WriteHost -MsgPrefix $FileWriteHostPrefix
-        #remove working directory if failed
-        Remove-Item $WorkingDir -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-        Continue
-    }
+    
+    #remove working directory
+    Write-Log -Message ("Removing working directory [{0}]" -f $WorkingDir) -Source 'BITS' -Severity 5 -WriteHost -MsgPrefix $FileWriteHostPrefix
+    Remove-Item $WorkingDir -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 
 }
 
